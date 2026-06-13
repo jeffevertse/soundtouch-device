@@ -15,6 +15,12 @@ echo "[install] disk before:"; df -h /mnt/nv 2>/dev/null || df -h
 
 mkdir -p "$INSTALL_DIR"
 
+# Stop a running instance first — you can't overwrite a running binary (ETXTBSY).
+if [ -x /etc/init.d/$APP ]; then
+    /etc/init.d/$APP stop 2>/dev/null
+    sleep 1
+fi
+
 # Back up any existing binary before overwriting (rollback point).
 if [ -f "$INSTALL_DIR/$APP" ]; then
     ver=$("$INSTALL_DIR/$APP" -version 2>/dev/null || date +%Y%m%d-%H%M%S)
