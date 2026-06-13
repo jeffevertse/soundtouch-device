@@ -30,7 +30,10 @@ fi
 
 cp "$STAGE_DIR/$APP" "$INSTALL_DIR/$APP"
 chmod +x "$INSTALL_DIR/$APP"
-ln -sf "$INSTALL_DIR" /opt/$APP
+# rm before ln: `ln -sf` onto an existing symlink-to-dir would create the link
+# INSIDE the target dir (clobbering the binary). Remove the old symlink first.
+rm -f /opt/$APP
+ln -s "$INSTALL_DIR" /opt/$APP
 
 # Seed config only if absent (preserve user edits).
 [ -f "$INSTALL_DIR/config.json" ] || cp "$STAGE_DIR/config.example.json" "$INSTALL_DIR/config.json"
