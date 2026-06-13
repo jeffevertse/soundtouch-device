@@ -47,11 +47,17 @@ func main() {
 
 	st := client.NewClientFromHost(deviceHost)
 
+	deviceID := ""
+	if info, err := st.GetDeviceInfo(); err == nil {
+		deviceID = info.DeviceID
+		log.Printf("[soundtouchd] device: %s (%s)", info.Name, deviceID)
+	}
+
 	// Resolve the UPnP AVTransport control URL (retry — the device may be booting).
 	var player *upnp.Player
 	go func() {
 		for {
-			if url, err := upnp.FindControlURL(deviceHost); err == nil {
+			if url, err := upnp.FindControlURL(streamHost, deviceID); err == nil {
 				player = upnp.New(url)
 				log.Printf("[soundtouchd] AVTransport control URL: %s", url)
 				return

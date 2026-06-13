@@ -27,7 +27,7 @@ type Config struct {
 func Default() *Config {
 	return &Config{
 		DeviceHost: "",
-		ProxyPort:  8091,
+		ProxyPort:  8099,
 		Presets: []Preset{
 			{1, "BBC Radio 4", "http://stream.live.vc.bbcmedia.co.uk/bbc_radio_four_fm", "📻"},
 			{2, "BBC Radio 6 Music", "http://stream.live.vc.bbcmedia.co.uk/bbc_6music", "🎵"},
@@ -53,7 +53,7 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 	if c.ProxyPort == 0 {
-		c.ProxyPort = 8091
+		c.ProxyPort = 8099
 	}
 	return &c, nil
 }

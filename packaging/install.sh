@@ -42,6 +42,6 @@ sleep 2
 
 echo "[install] disk after:"; df -h /mnt/nv 2>/dev/null || df -h
 echo "[install] health:"
-curl -fsS --max-time 5 "http://127.0.0.1:8091/healthz" || echo "(health check failed — see /tmp/$APP.log)"
+curl -fsS --max-time 5 "http://127.0.0.1:8099/healthz" || echo "(health check failed — see /tmp/$APP.log)"
 echo
 echo "[install] done. Uninstall with uninstall.sh."

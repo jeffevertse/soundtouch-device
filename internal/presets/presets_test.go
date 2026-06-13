@@ -16,7 +16,7 @@ func TestLoadMissingReturnsDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(c.Presets) != 6 || c.ProxyPort != 8091 {
+	if len(c.Presets) != 6 || c.ProxyPort != 8099 {
 		t.Fatalf("expected defaults, got %d presets port %d", len(c.Presets), c.ProxyPort)
 	}
 }

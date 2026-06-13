@@ -9,6 +9,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -49,42 +50,105 @@ type Player struct {
 	client     *http.Client
 }
 
-// FindControlURL fetches the device description and returns the AVTransport
-// control URL. SoundTouch exposes the description on port 8091/8092.
-func FindControlURL(host string) (string, error) {
-	hc := &http.Client{Timeout: 5 * time.Second}
+// FindControlURL locates the speaker's AVTransport control URL. It tries SSDP
+// first (the renderer advertises its description LOCATION), then falls back to
+// the known Bose description path derived from the deviceID.
+func FindControlURL(host, deviceID string) (string, error) {
+	var locs []string
+	// Prefer the deviceID-derived description: it is definitively THIS speaker
+	// (the network may have other UPnP renderers — TVs, other speakers).
+	if deviceID != "" {
+		locs = append(locs, fmt.Sprintf("http://%s:8091/XD/BO5EBO5E-F00D-F00D-FEED-%s.xml",
+			host, strings.ToUpper(deviceID)))
+	}
+	if loc, err := ssdpLocation(host, deviceID); err == nil && loc != "" {
+		locs = append(locs, loc)
+	}
 	var lastErr error
-	for _, port := range []int{8091, 8092} {
-		descURL := fmt.Sprintf("http://%s:%d/DeviceDescription.xml", host, port)
-		resp, err := hc.Get(descURL)
-		if err != nil {
-			lastErr = err
-			continue
+	for _, loc := range locs {
+		ctrl, err := controlURLFromDesc(loc)
+		if err == nil {
+			return ctrl, nil
 		}
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-		resp.Body.Close()
-		var root descRoot
-		if err := xml.Unmarshal(body, &root); err != nil {
-			lastErr = err
-			continue
-		}
-		var svcs []service
-		collectServices(root.Device, &svcs)
-		for _, s := range svcs {
-			if strings.Contains(s.ServiceType, "AVTransport") && s.ControlURL != "" {
-				base := root.URLBase
-				if base == "" {
-					base = fmt.Sprintf("http://%s:%d/", host, port)
-				}
-				return resolveRef(base, s.ControlURL), nil
-			}
-		}
-		lastErr = fmt.Errorf("no AVTransport service in description at %s", descURL)
+		lastErr = err
 	}
 	if lastErr == nil {
-		lastErr = fmt.Errorf("device description not found on %s", host)
+		lastErr = fmt.Errorf("AVTransport control URL not found for %s", host)
 	}
 	return "", lastErr
+}
+
+func controlURLFromDesc(descURL string) (string, error) {
+	hc := &http.Client{Timeout: 5 * time.Second}
+	resp, err := hc.Get(descURL)
+	if err != nil {
+		return "", err
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	resp.Body.Close()
+	var root descRoot
+	if err := xml.Unmarshal(body, &root); err != nil {
+		return "", err
+	}
+	var svcs []service
+	collectServices(root.Device, &svcs)
+	for _, s := range svcs {
+		if strings.Contains(s.ServiceType, "AVTransport") && s.ControlURL != "" {
+			base := root.URLBase
+			if base == "" {
+				base = descURL // resolve relative controlURL against the description URL
+			}
+			return resolveRef(base, s.ControlURL), nil
+		}
+	}
+	return "", fmt.Errorf("no AVTransport service in %s", descURL)
+}
+
+// ssdpLocation sends an SSDP M-SEARCH for a MediaRenderer and returns the
+// advertised description LOCATION. When deviceID is set, only a response whose
+// USN/headers contain that id is accepted (avoids picking a foreign renderer).
+func ssdpLocation(host, deviceID string) (string, error) {
+	mcast, err := net.ResolveUDPAddr("udp4", "239.255.255.250:1900")
+	if err != nil {
+		return "", err
+	}
+	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
+	if err != nil {
+		return "", err
+	}
+	defer conn.Close()
+
+	msg := "M-SEARCH * HTTP/1.1\r\n" +
+		"HOST: 239.255.255.250:1900\r\n" +
+		"MAN: \"ssdp:discover\"\r\n" +
+		"MX: 2\r\n" +
+		"ST: urn:schemas-upnp-org:device:MediaRenderer:1\r\n\r\n"
+	if _, err := conn.WriteToUDP([]byte(msg), mcast); err != nil {
+		return "", err
+	}
+
+	local := host == "" || host == "127.0.0.1" || host == "localhost"
+	wantID := strings.ToUpper(deviceID)
+	_ = conn.SetReadDeadline(time.Now().Add(4 * time.Second))
+	buf := make([]byte, 65535)
+	for {
+		n, from, err := conn.ReadFromUDP(buf)
+		if err != nil {
+			return "", err
+		}
+		payload := string(buf[:n])
+		if !local && from.IP.String() != host {
+			continue
+		}
+		if wantID != "" && !strings.Contains(strings.ToUpper(payload), wantID) {
+			continue // a different UPnP renderer on the network
+		}
+		for _, line := range strings.Split(payload, "\n") {
+			if strings.HasPrefix(strings.ToLower(strings.TrimSpace(line)), "location:") {
+				return strings.TrimSpace(line[strings.Index(line, ":")+1:]), nil
+			}
+		}
+	}
 }
 
 func resolveRef(base, ref string) string {
