@@ -17,8 +17,9 @@ import (
 )
 
 const (
-	resumeDebounce = 10 * time.Second // ignore repeat power-on triggers
-	pressDebounce  = 3 * time.Second  // ignore repeat button-press frames
+	resumeDebounce  = 10 * time.Second // ignore repeat power-on triggers
+	pressDebounce   = 3 * time.Second  // ignore repeat button-press frames
+	minStandbyDwell = 15 * time.Second // must be in standby this long before a wake counts as a real power-on
 )
 
 // matches the selected preset id inside a nowSelectionUpdated frame
@@ -29,10 +30,11 @@ type Watcher struct {
 	client     *client.Client
 	onResume   func()
 	onPreset   func(int)
-	mu         sync.Mutex
-	prev       string
-	lastResume time.Time
-	lastPress  time.Time
+	mu          sync.Mutex
+	prev        string
+	wentStandby time.Time
+	lastResume  time.Time
+	lastPress   time.Time
 }
 
 func New(c *client.Client, onResume func(), onPreset func(int)) *Watcher {
@@ -48,18 +50,24 @@ func (w *Watcher) Start() error {
 		w.mu.Lock()
 		prev := w.prev
 		w.prev = src
+		if src == "STANDBY" && prev != "STANDBY" {
+			w.wentStandby = time.Now()
+		}
+		dwell := time.Since(w.wentStandby)
 		powerOn := prev == "STANDBY" && src != "" && src != "STANDBY"
-		fire := powerOn && time.Since(w.lastResume) >= resumeDebounce
+		// A real power-on follows a long standby; the power-OFF flicker
+		// (STANDBY → transient source) has near-zero dwell and must be ignored.
+		fire := powerOn && dwell >= minStandbyDwell && time.Since(w.lastResume) >= resumeDebounce
 		if fire {
 			w.lastResume = time.Now()
 		}
 		w.mu.Unlock()
 		switch {
 		case fire:
-			log.Printf("[resume] power-on detected (%s -> %s) — resuming", prev, src)
+			log.Printf("[resume] power-on detected (%s -> %s, standby %.0fs) — resuming", prev, src, dwell.Seconds())
 			go w.onResume()
 		case powerOn:
-			log.Printf("[resume] power-on (%s -> %s) ignored (debounced)", prev, src)
+			log.Printf("[resume] power-on (%s -> %s) ignored (standby only %.0fs / debounced)", prev, src, dwell.Seconds())
 		}
 	})
 

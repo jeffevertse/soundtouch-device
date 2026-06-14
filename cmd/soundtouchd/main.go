@@ -241,6 +241,11 @@ func main() {
 	// Auto-resume on power-on.
 	go func() {
 		watcher := resume.New(st, func() {
+			// Never wake a speaker that is actually off (guards a late/stale event).
+			if np, err := st.GetNowPlaying(); err == nil && strings.EqualFold(np.Source, "STANDBY") {
+				log.Printf("[resume] device is in standby — not waking it")
+				return
+			}
 			if id := store.LastPreset(); id > 0 {
 				if err := playPreset(id); err != nil {
 					log.Printf("[resume] %v", err)

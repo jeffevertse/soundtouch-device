@@ -163,7 +163,9 @@ func safeGet(method, raw string, timeout time.Duration) (*http.Response, error) 
 	}
 	req.Host = u.Host // original host[:port] for virtual-host routing
 	req.Header.Set("User-Agent", "SoundTouch/1.0")
-	req.Header.Set("Icy-MetaData", "1")
+	// Deliberately do NOT request ICY metadata: the SoundTouch renderer fetches
+	// our stream without asking for metadata, so any interleaved metadata blocks
+	// would corrupt the audio (scrambled / fast-forward sound).
 	client := &http.Client{
 		Timeout: timeout,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
@@ -219,7 +221,7 @@ func isRedirect(code int) bool {
 	return false
 }
 
-// Proxy streams the resolved station to w, forwarding ICY metadata headers.
+// Proxy streams the resolved station to w as clean audio (no ICY metadata).
 func Proxy(w http.ResponseWriter, stationURL string) {
 	direct, err := Resolve(stationURL)
 	if err != nil {
@@ -247,11 +249,8 @@ func Proxy(w http.ResponseWriter, stationURL string) {
 		ct = "audio/mpeg"
 	}
 	w.Header().Set("Content-Type", ct)
-	for k, v := range resp.Header {
-		if strings.HasPrefix(strings.ToLower(k), "icy-") && len(v) > 0 {
-			w.Header().Set(k, v[0])
-		}
-	}
+	// Intentionally do not forward icy-* headers: we don't request metadata, so
+	// the body is clean audio and the renderer must not expect interleaved metadata.
 	flusher, _ := w.(http.Flusher)
 	buf := make([]byte, 8192)
 	for {
