@@ -1,4 +1,4 @@
-VERSION ?= 0.3.5
+VERSION ?= 0.3.6
 SSHOPT  := -o HostKeyAlgorithms=+ssh-rsa
 LDFLAGS := -s -w -X main.version=$(VERSION)
 

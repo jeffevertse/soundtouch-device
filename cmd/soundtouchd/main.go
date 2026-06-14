@@ -104,20 +104,34 @@ func main() {
 	store := &configStore{cfg: cfg, path: *configPath}
 
 	deviceHost := firstNonEmpty(*hostFlag, cfg.DeviceHost, "127.0.0.1")
-	streamHost := localIP(deviceHost) // address the renderer can fetch our proxy from
-	listenPort := cfg.ProxyPort       // fixed at startup; changing it needs a restart
-	streamBase := fmt.Sprintf("http://%s:%d", streamHost, listenPort)
-	log.Printf("[soundtouchd] %s | device=%s proxy=%s", version, deviceHost, streamBase)
+	listenPort := cfg.ProxyPort // fixed at startup; changing it needs a restart
+	log.Printf("[soundtouchd] %s | device=%s port=%d", version, deviceHost, listenPort)
 
 	st := client.NewClientFromHost(deviceHost)
 
+	// Wait for the SoundTouch firmware HTTP API (port 8090) to be ready.
+	// soundtouchd starts before the firmware on cold boot; this is the single
+	// gate for everything that depends on the API. Network (DHCP) is also
+	// guaranteed to be up once GetDeviceInfo() succeeds over TCP.
 	deviceID := ""
-	if info, err := st.GetDeviceInfo(); err == nil {
-		deviceID = info.DeviceID
-		log.Printf("[soundtouchd] device: %s (%s)", info.Name, deviceID)
+	for {
+		if info, err := st.GetDeviceInfo(); err == nil {
+			deviceID = info.DeviceID
+			log.Printf("[soundtouchd] firmware ready: %s (%s)", info.Name, deviceID)
+			break
+		}
+		log.Printf("[soundtouchd] waiting for firmware API...")
+		time.Sleep(5 * time.Second)
 	}
 
-	// Resolve the UPnP AVTransport control URL (retry — the device may be booting).
+	// Compute streamHost after the firmware gate: the network (DHCP) is now
+	// guaranteed up, so localIP returns the real LAN IP rather than 127.0.0.1.
+	streamHost := localIP(deviceHost)
+	streamBase := fmt.Sprintf("http://%s:%d", streamHost, listenPort)
+	log.Printf("[soundtouchd] proxy=%s", streamBase)
+
+	// Resolve the UPnP AVTransport control URL. Retry in case the renderer
+	// comes up slightly after the HTTP API.
 	var player *upnp.Player
 	go func() {
 		for {
@@ -126,14 +140,16 @@ func main() {
 				log.Printf("[soundtouchd] AVTransport control URL: %s", url)
 				return
 			}
-			time.Sleep(10 * time.Second)
+			time.Sleep(5 * time.Second)
 		}
 	}()
 
-	// Point the physical preset buttons at this daemon (after the device settles).
+	// Point the physical preset buttons at this daemon. Retry until all
+	// StorePreset calls succeed (transient errors possible right after boot).
 	go func() {
-		time.Sleep(5 * time.Second)
-		syncHardwarePresets(st, store.Get(), streamBase)
+		for !syncHardwarePresets(st, store.Get(), streamBase) {
+			time.Sleep(5 * time.Second)
+		}
 	}()
 
 	var playMu sync.Mutex
@@ -262,24 +278,31 @@ func main() {
 			// drop. It only returns an error when the initial connect fails (firmware
 			// WebSocket not up yet at cold boot). Retry until the firmware is ready.
 			if err := watcher.Start(); err != nil {
-				log.Printf("[resume] websocket error: %v — retrying in 15s", err)
-				time.Sleep(15 * time.Second)
+				log.Printf("[resume] websocket error: %v — retrying in 5s", err)
+				time.Sleep(5 * time.Second)
 			} else {
 				return // context cancelled / explicit disconnect — not expected in normal use
 			}
 		}
 	}()
 
+	// HTTP server: mux is fully set up by this point.
 	addr := fmt.Sprintf(":%d", listenPort)
-	log.Printf("[soundtouchd] listening on %s", addr)
-	log.Fatal(http.ListenAndServe(addr, mux))
+	go func() {
+		log.Printf("[soundtouchd] listening on %s", addr)
+		log.Fatal(http.ListenAndServe(addr, mux))
+	}()
+
+	select {} // goroutines run forever; this keeps main alive
 }
 
 // syncHardwarePresets writes the configured stations into the speaker's 6 physical
 // preset slots as LOCAL_INTERNET_RADIO entries pointing at this daemon's stream
 // proxy, so pressing a physical button (or app preset) plays via us — not the dead
-// Bose cloud. Re-run whenever the config changes.
-func syncHardwarePresets(st *client.Client, cfg *presets.Config, streamBase string) {
+// Bose cloud. Re-run whenever the config changes. Returns true if all StorePreset
+// calls succeeded (callers may retry on false).
+func syncHardwarePresets(st *client.Client, cfg *presets.Config, streamBase string) bool {
+	ok := true
 	for _, p := range cfg.Presets {
 		if p.StreamURL == "" {
 			continue
@@ -292,10 +315,14 @@ func syncHardwarePresets(st *client.Client, cfg *presets.Config, streamBase stri
 			ItemName:     p.Name,
 		}
 		if err := st.StorePreset(p.ID, ci); err != nil {
-			log.Printf("[soundtouchd] storePreset %d: %v", p.ID, err)
+			log.Printf("[soundtouchd] storePreset %d: %v — will retry", p.ID, err)
+			ok = false
 		}
 	}
-	log.Printf("[soundtouchd] hardware presets synced -> %s/stream/<id>", streamBase)
+	if ok {
+		log.Printf("[soundtouchd] hardware presets synced -> %s/stream/<id>", streamBase)
+	}
+	return ok
 }
 
 // cors allows the local config editor (a file:// page → Origin "null", or one
