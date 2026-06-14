@@ -39,26 +39,33 @@ func Default() *Config {
 	}
 }
 
-// Load reads config from path, returning defaults if the file does not exist.
+// Load reads config from path. If the file is absent, corrupt, or empty it
+// falls back to path+".bak" (written by Save after every successful write)
+// and finally to Default(). This means a power-cut during Save never bricks
+// the daemon — it self-heals on the next boot.
 func Load(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return Default(), nil
+	for _, candidate := range []string{path, path + ".bak"} {
+		data, err := os.ReadFile(candidate)
+		if errors.Is(err, os.ErrNotExist) || len(data) == 0 {
+			continue
+		}
+		if err != nil {
+			continue
+		}
+		var c Config
+		if err := json.Unmarshal(data, &c); err != nil {
+			continue // corrupt — try next candidate
+		}
+		if c.ProxyPort == 0 {
+			c.ProxyPort = 8099
+		}
+		return &c, nil
 	}
-	if err != nil {
-		return nil, err
-	}
-	var c Config
-	if err := json.Unmarshal(data, &c); err != nil {
-		return nil, err
-	}
-	if c.ProxyPort == 0 {
-		c.ProxyPort = 8099
-	}
-	return &c, nil
+	return Default(), nil
 }
 
-// Save atomically writes the config to path (temp file + rename).
+// Save atomically writes the config to path (temp file + rename) and keeps a
+// .bak copy so Load can recover if the primary file is ever corrupt.
 func (c *Config) Save(path string) error {
 	if dir := filepath.Dir(path); dir != "" {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -70,10 +77,28 @@ func (c *Config) Save(path string) error {
 		return err
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	_, werr := f.Write(data)
+	serr := f.Sync() // flush to storage before rename so a power-cut can't zero the file
+	cerr := f.Close()
+	if werr != nil {
+		return werr
+	}
+	if serr != nil {
+		return serr
+	}
+	if cerr != nil {
+		return cerr
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	// Best-effort backup — Load() uses this if the primary file is ever corrupt.
+	_ = os.WriteFile(path+".bak", data, 0o644)
+	return nil
 }
 
 // ByID returns the preset with the given id, or nil.

@@ -258,13 +258,14 @@ func main() {
 			}
 		})
 		for {
-			err := watcher.Start()
-			if err != nil {
+			// Start blocks while connected; the library reconnects internally on
+			// drop. It only returns an error when the initial connect fails (firmware
+			// WebSocket not up yet at cold boot). Retry until the firmware is ready.
+			if err := watcher.Start(); err != nil {
 				log.Printf("[resume] websocket error: %v — retrying in 15s", err)
 				time.Sleep(15 * time.Second)
 			} else {
-				log.Printf("[resume] websocket closed — reconnecting in 5s")
-				time.Sleep(5 * time.Second)
+				return // context cancelled / explicit disconnect — not expected in normal use
 			}
 		}
 	}()

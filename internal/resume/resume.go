@@ -41,6 +41,10 @@ func New(c *client.Client, onResume func(), onPreset func(int)) *Watcher {
 	return &Watcher{client: c, onResume: onResume, onPreset: onPreset}
 }
 
+// Start connects to the WebSocket and blocks until ws.Wait() returns (i.e.
+// until the client is explicitly disconnected). The library handles reconnects
+// internally. Start returns a non-nil error only when the initial connect
+// fails (e.g. firmware WebSocket not ready yet at boot).
 func (w *Watcher) Start() error {
 	ws := w.client.NewWebSocketClient(client.DefaultWebSocketConfig())
 
@@ -101,5 +105,10 @@ func (w *Watcher) Start() error {
 		}()
 	})
 
-	return ws.Connect()
+	if err := ws.Connect(); err != nil {
+		return err // initial connect failed (firmware WebSocket not ready yet)
+	}
+	// Block here; the library's internal reconnect loop handles drops.
+	ws.Wait()
+	return nil
 }
