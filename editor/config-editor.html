@@ -59,6 +59,17 @@
     </div>
 
     <div class="card">
+      <label>Bass</label>
+      <div style="display:flex;align-items:center;gap:14px;margin-top:6px">
+        <span style="color:var(--muted);font-size:13px;min-width:24px;text-align:right">−9</span>
+        <input type="range" id="bassSlider" min="-9" max="9" step="1" value="0" style="flex:1;accent-color:var(--accent)">
+        <span style="color:var(--muted);font-size:13px;min-width:24px">+9</span>
+        <span id="bassVal" style="font-weight:700;font-size:18px;min-width:30px;text-align:center">0</span>
+        <button class="btn" onclick="setBass()">Set</button>
+      </div>
+    </div>
+
+    <div class="card">
       <label>Advanced</label>
       <div class="row">
         <div><label>proxy_port</label><input id="proxyPort"></div>
@@ -82,6 +93,13 @@
 <script>
 const $ = (id) => document.getElementById(id);
 let lastPresetId = 0;
+
+document.addEventListener("DOMContentLoaded", () => {
+  $("bassSlider").addEventListener("input", () => {
+    const v = parseInt($("bassSlider").value, 10);
+    $("bassVal").textContent = v > 0 ? "+" + v : String(v);
+  });
+});
 
 // persist connection
 $("host").value = localStorage.getItem("st_host") || "192.168.1.29";
@@ -109,7 +127,17 @@ async function load() {
   } catch (e) {
     status("Couldn't reach the device: " + e.message +
       "\nCheck the IP/port and that the SoundTouch add-on is running.", "err");
+    return;
   }
+  // Bass fetch is best-effort — the endpoint requires the updated binary.
+  try {
+    const b = await fetch(base() + "/bass");
+    if (b.ok) {
+      const { level } = await b.json();
+      $("bassSlider").value = level;
+      $("bassVal").textContent = level > 0 ? "+" + level : String(level);
+    }
+  } catch (_) {}
 }
 
 function fillForm(cfg) {
@@ -181,6 +209,21 @@ async function applyRaw() {
     fillForm(cfg);
     status("Applied raw JSON ✓" + (res.restartNeeded ? "\nPort changed — click Restart service." : ""), "ok");
   } catch (e) { status("Apply failed: " + e.message, "err"); }
+}
+
+async function setBass() {
+  const level = parseInt($("bassSlider").value, 10);
+  status("Setting bass to " + level + "…", "info");
+  try {
+    const r = await fetch(base() + "/bass", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ level }),
+    });
+    const text = await r.text();
+    if (!r.ok) throw new Error(text || ("HTTP " + r.status));
+    status("Bass set to " + (level > 0 ? "+" + level : level) + " ✓", "ok");
+  } catch (e) { status("Set bass failed: " + e.message, "err"); }
 }
 
 async function restart() {

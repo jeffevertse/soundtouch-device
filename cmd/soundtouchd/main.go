@@ -236,6 +236,37 @@ func main() {
 		}
 	})
 
+	mux.HandleFunc("/bass", func(w http.ResponseWriter, r *http.Request) {
+		cors(w, r)
+		switch r.Method {
+		case http.MethodOptions:
+			w.WriteHeader(http.StatusNoContent)
+		case http.MethodGet:
+			b, err := st.GetBass()
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusServiceUnavailable)
+				return
+			}
+			writeJSON(w, map[string]any{"level": b.ActualBass})
+		case http.MethodPost, http.MethodPut:
+			var req struct {
+				Level int `json:"level"`
+			}
+			if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&req); err != nil {
+				http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			if err := st.SetBassSafe(req.Level); err != nil {
+				http.Error(w, err.Error(), http.StatusServiceUnavailable)
+				return
+			}
+			log.Printf("[soundtouchd] bass set to %d", req.Level)
+			writeJSON(w, map[string]any{"ok": true, "level": req.Level})
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
 	mux.HandleFunc("/restart", func(w http.ResponseWriter, r *http.Request) {
 		cors(w, r)
 		if r.Method == http.MethodOptions {
