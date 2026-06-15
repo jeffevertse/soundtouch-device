@@ -148,15 +148,12 @@ function fillForm(cfg) {
   (cfg.presets || []).forEach(p => byId[p.id] = p);
   const c = $("presets"); c.innerHTML = "";
   for (let id = 1; id <= 6; id++) {
-    const p = byId[id] || { id, name: "", stream_url: "", icon: "" };
+    const p = byId[id] || { id, name: "", stream_url: "" };
     const div = document.createElement("div");
     div.className = "preset";
     div.innerHTML = `<h3>Preset ${id}</h3>
-      <div class="row">
-        <div style="flex:0 0 70px"><label>Icon</label><input data-f="icon" data-id="${id}" value="${esc(p.icon)}" maxlength="4"></div>
-        <div style="flex:2"><label>Name</label><input data-f="name" data-id="${id}" value="${esc(p.name)}"></div>
-      </div>
-      <div style="margin-top:8px"><label>Stream URL</label><input data-f="stream_url" data-id="${id}" value="${esc(p.stream_url)}" placeholder="http(s)://… .mp3 / .pls / .m3u"></div>`;
+      <div style="margin-bottom:8px"><label>Name</label><input data-f="name" data-id="${id}" value="${esc(p.name)}"></div>
+      <div><label>Stream URL</label><input data-f="stream_url" data-id="${id}" value="${esc(p.stream_url)}" placeholder="http(s)://… .mp3 / .pls / .m3u"></div>`;
     c.appendChild(div);
   }
   $("raw").value = JSON.stringify(buildConfig(), null, 2);
@@ -166,7 +163,7 @@ function buildConfig() {
   const presets = [];
   for (let id = 1; id <= 6; id++) {
     const g = (f) => (document.querySelector(`[data-f="${f}"][data-id="${id}"]`)?.value || "").trim();
-    presets.push({ id, name: g("name"), stream_url: g("stream_url"), icon: g("icon") });
+    presets.push({ id, name: g("name"), stream_url: g("stream_url") });
   }
   return {
     device_host: $("deviceHost").value.trim(),

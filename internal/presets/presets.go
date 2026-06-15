@@ -13,7 +13,6 @@ type Preset struct {
 	ID        int    `json:"id"`
 	Name      string `json:"name"`
 	StreamURL string `json:"stream_url"`
-	Icon      string `json:"icon"`
 }
 
 type Config struct {
@@ -29,12 +28,12 @@ func Default() *Config {
 		DeviceHost: "",
 		ProxyPort:  8099,
 		Presets: []Preset{
-			{1, "BBC Radio 4", "http://stream.live.vc.bbcmedia.co.uk/bbc_radio_four_fm", "📻"},
-			{2, "BBC Radio 6 Music", "http://stream.live.vc.bbcmedia.co.uk/bbc_6music", "🎵"},
-			{3, "NTS Radio 1", "https://stream-relay-geo.ntslive.net/stream", "🎶"},
-			{4, "KEXP Seattle", "https://kexp-mp3-128.streamguys1.com/kexp128.mp3", "🌲"},
-			{5, "Jazz24", "https://live.jazz24.org/jazz24", "🎷"},
-			{6, "Empty Preset 6", "", "⭕"},
+			{1, "BBC Radio 4", "http://stream.live.vc.bbcmedia.co.uk/bbc_radio_four_fm"},
+			{2, "BBC Radio 6 Music", "http://stream.live.vc.bbcmedia.co.uk/bbc_6music"},
+			{3, "NTS Radio 1", "https://stream-relay-geo.ntslive.net/stream"},
+			{4, "KEXP Seattle", "https://kexp-mp3-128.streamguys1.com/kexp128.mp3"},
+			{5, "Jazz24", "https://live.jazz24.org/jazz24"},
+			{6, "Empty Preset 6", ""},
 		},
 	}
 }
